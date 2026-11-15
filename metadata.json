@@ -1,0 +1,6 @@
+{
+  "name": "Vance Automations",
+  "description": "Custom AI agents, anti-fraud vision verification, and automated CRM workflows engineered by Vance Automations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
