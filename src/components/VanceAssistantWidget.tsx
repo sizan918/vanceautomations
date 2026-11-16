@@ -74,12 +74,39 @@ function makeInitialMessage(persona: DemoPersona): ChatMessage {
   };
 }
 
+const N8N_CHAT_WEBHOOK_URL =
+  "https://sizan69007.app.n8n.cloud/webhook/vance-agency-chat";
+const SESSION_STORAGE_KEY = "vance_chat_session_id_v1";
+
+function createSessionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `vance-${crypto.randomUUID()}`;
+  }
+  return `vance-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getOrCreateSessionId(): string {
+  if (typeof window === "undefined") return createSessionId();
+  try {
+    const existing = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (existing) return existing;
+    const created = createSessionId();
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, created);
+    return created;
+  } catch {
+    return createSessionId();
+  }
+}
+
 export function VanceAssistantWidget({
   isOpen,
   activePersona,
   onToggleOpen,
   onChangePersona,
 }: VanceAssistantWidgetProps) {
+  const [sessionId, setSessionId] = useState<string>(() =>
+    getOrCreateSessionId()
+  );
   const [histories, setHistories] = useState<Record<DemoPersona, ChatMessage[]>>(
     () => ({
       agency: [makeInitialMessage("agency")],
@@ -125,33 +152,33 @@ export function VanceAssistantWidget({
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch(N8N_CHAT_WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          persona: activePersona,
-          messages: nextHistory.map((m) => ({
-            role: m.role,
-            text: m.text,
-          })),
+          message: trimmed,
+          sessionId,
+          mode: activePersona,
         }),
       });
 
-      const data = (await response.json()) as {
-        reply?: string;
-        error?: string;
-      };
+      const rawData = (await response.json()) as
+        | { reply?: string; output?: string; error?: string }
+        | Array<{ reply?: string; output?: string; error?: string }>;
 
-      if (!response.ok || !data.reply) {
+      const data = Array.isArray(rawData) ? rawData[0] ?? {} : rawData;
+      const replyText = data?.reply || data?.output;
+
+      if (!response.ok || !replyText) {
         throw new Error(
-          data.error || "Unable to reach the Vance AI Assistant right now."
+          data?.error || "Unable to reach the Vance AI Assistant right now."
         );
       }
 
       const botMsg: ChatMessage = {
         id: `model-${Date.now()}`,
         role: "model",
-        text: data.reply,
+        text: replyText,
         timestamp: new Date().toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
@@ -180,6 +207,13 @@ export function VanceAssistantWidget({
 
   const handleReset = () => {
     setErrorMsg(null);
+    const nextSessionId = createSessionId();
+    setSessionId(nextSessionId);
+    try {
+      window.sessionStorage.setItem(SESSION_STORAGE_KEY, nextSessionId);
+    } catch {
+      // Ignore storage errors
+    }
     setHistories((prev) => ({
       ...prev,
       [activePersona]: [makeInitialMessage(activePersona)],
